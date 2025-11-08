@@ -21,7 +21,7 @@
 
         @if (!string.IsNullOrEmpty(uploadMessage))
         {
-            <div class="alert @(uploadSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+            <div class="alert @(uploadSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert" style="white-space: pre-wrap; font-family: monospace; font-size: 0.9em;">
                 @uploadMessage
                 <button type="button" class="btn-close" @onclick="ClearUploadMessage"></button>
             </div>
@@ -138,17 +138,80 @@
         try
         {
             var baseUri = Navigation.BaseUri.TrimEnd('/');
-            var response = await Http.GetFromJsonAsync<DocumentsResponse>($"{baseUri}/api/documents?page={currentPage}&pageSize={pageSize}");
-            if (response != null)
+            var httpResponse = await Http.GetAsync($"{baseUri}/api/documents?page={currentPage}&pageSize={pageSize}");
+            
+            if (httpResponse.IsSuccessStatusCode)
             {
-                documents = response.Documents;
-                totalCount = response.TotalCount;
-                totalPages = totalCount > 0 ? (int)Math.Ceiling(totalCount / (double)pageSize) : 1;
+                var response = await httpResponse.Content.ReadFromJsonAsync<DocumentsResponse>();
+                if (response != null)
+                {
+                    documents = response.Documents;
+                    totalCount = response.TotalCount;
+                    totalPages = totalCount > 0 ? (int)Math.Ceiling(totalCount / (double)pageSize) : 1;
+                    
+                    // Check for error message in response
+                    if (!string.IsNullOrEmpty(response.ErrorMessage))
+                    {
+                        uploadMessage = $"Error loading documents:\n\n{response.ErrorMessage}";
+                        uploadSuccess = false;
+                    }
+                }
             }
+            else
+            {
+                // Read error details from response body
+                var errorContent = await httpResponse.Content.ReadAsStringAsync();
+                string errorDetails;
+                
+                // Try to parse as DocumentsResponse to get ErrorMessage
+                try
+                {
+                    var errorResponse = System.Text.Json.JsonSerializer.Deserialize<DocumentsResponse>(errorContent);
+                    if (errorResponse != null && !string.IsNullOrEmpty(errorResponse.ErrorMessage))
+                    {
+                        errorDetails = errorResponse.ErrorMessage;
+                    }
+                    else
+                    {
+                        errorDetails = $"HTTP Status: {(int)httpResponse.StatusCode} {httpResponse.StatusCode}\n" +
+                                     $"Response Body:\n{errorContent}";
+                    }
+                }
+                catch
+                {
+                    // If parsing fails, use the raw content
+                    errorDetails = $"HTTP Status: {(int)httpResponse.StatusCode} {httpResponse.StatusCode}\n" +
+                                 $"Response Body:\n{errorContent}";
+                }
+                
+                uploadMessage = $"Error loading documents:\n\n{errorDetails}";
+                uploadSuccess = false;
+            }
+        }
+        catch (HttpRequestException httpEx)
+        {
+            var errorDetails = $"HTTP Error: {httpEx.Message}\n" +
+                             $"Stack Trace:\n{httpEx.StackTrace}";
+            if (httpEx.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n{httpEx.InnerException.Message}\n{httpEx.InnerException.StackTrace}";
+            }
+            uploadMessage = $"Error loading documents (HTTP Error):\n\n{errorDetails}";
+            uploadSuccess = false;
         }
         catch (Exception ex)
         {
-            uploadMessage = $"Error loading documents: {ex.Message}";
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+            uploadMessage = $"Error loading documents:\n\n{errorDetails}";
             uploadSuccess = false;
         }
     }
@@ -311,6 +374,7 @@
         public int TotalCount { get; set; }
         public int Page { get; set; }
         public int PageSize { get; set; }
+        public string? ErrorMessage { get; set; }
     }
 
     private class DocumentDto

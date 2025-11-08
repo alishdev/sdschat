@@ -133,38 +133,125 @@ public class SupabaseService : ISupabaseService
 
     public async Task<List<DocumentRecord>> GetDocumentsAsync(int page, int pageSize)
     {
-        await using var connection = new NpgsqlConnection(_connectionString);
-        await connection.OpenAsync();
-
-        var command = new NpgsqlCommand(
-            "SELECT id, filename, created_at FROM data.documents ORDER BY created_at DESC OFFSET @offset LIMIT @limit",
-            connection);
-        command.Parameters.AddWithValue("offset", (page - 1) * pageSize);
-        command.Parameters.AddWithValue("limit", pageSize);
-
-        var documents = new List<DocumentRecord>();
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        try
         {
-            documents.Add(new DocumentRecord
-            {
-                Id = reader.GetInt64(0),
-                Filename = reader.IsDBNull(1) ? null : reader.GetString(1),
-                CreatedAt = reader.GetDateTime(2)
-            });
-        }
+            _logger.LogDebug("Connecting to database for GetDocumentsAsync - Page: {Page}, PageSize: {PageSize}", page, pageSize);
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            _logger.LogDebug("Database connection opened successfully");
 
-        return documents;
+            var command = new NpgsqlCommand(
+                "SELECT id, filename, created_at FROM data.documents ORDER BY created_at DESC OFFSET @offset LIMIT @limit",
+                connection);
+            command.Parameters.AddWithValue("offset", (page - 1) * pageSize);
+            command.Parameters.AddWithValue("limit", pageSize);
+
+            _logger.LogDebug("Executing query: SELECT id, filename, created_at FROM data.documents ORDER BY created_at DESC OFFSET {Offset} LIMIT {Limit}", 
+                (page - 1) * pageSize, pageSize);
+
+            var documents = new List<DocumentRecord>();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                documents.Add(new DocumentRecord
+                {
+                    Id = reader.GetInt64(0),
+                    Filename = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    CreatedAt = reader.GetDateTime(2)
+                });
+            }
+
+            _logger.LogInformation("Successfully retrieved {Count} documents from database", documents.Count);
+            return documents;
+        }
+        catch (Npgsql.PostgresException pgEx)
+        {
+            var errorDetails = $"PostgreSQL Error Code: {pgEx.SqlState}\n" +
+                             $"Message: {pgEx.Message}\n" +
+                             $"Detail: {pgEx.Detail}\n" +
+                             $"Hint: {pgEx.Hint}\n" +
+                             $"Position: {pgEx.Position}\n" +
+                             $"Where: {pgEx.Where}\n" +
+                             $"Schema: {pgEx.SchemaName}\n" +
+                             $"Table: {pgEx.TableName}\n" +
+                             $"Column: {pgEx.ColumnName}\n" +
+                             $"Constraint: {pgEx.ConstraintName}\n" +
+                             $"Stack Trace:\n{pgEx.StackTrace}";
+            
+            _logger.LogError(pgEx, "PostgreSQL error in GetDocumentsAsync. Full details:\n{ErrorDetails}", errorDetails);
+            throw new Exception($"Database error in GetDocumentsAsync: {errorDetails}", pgEx);
+        }
+        catch (Exception ex)
+        {
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+
+            _logger.LogError(ex, "Error in GetDocumentsAsync. Full details:\n{ErrorDetails}", errorDetails);
+            throw new Exception($"Error in GetDocumentsAsync: {errorDetails}", ex);
+        }
     }
 
     public async Task<int> GetDocumentCountAsync()
     {
-        await using var connection = new NpgsqlConnection(_connectionString);
-        await connection.OpenAsync();
+        try
+        {
+            _logger.LogDebug("Connecting to database for GetDocumentCountAsync");
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            _logger.LogDebug("Database connection opened successfully");
 
-        var command = new NpgsqlCommand("SELECT COUNT(*) FROM data.documents", connection);
-        var result = await command.ExecuteScalarAsync();
-        return Convert.ToInt32(result);
+            var command = new NpgsqlCommand("SELECT COUNT(*) FROM data.documents", connection);
+            _logger.LogDebug("Executing query: SELECT COUNT(*) FROM data.documents");
+            
+            var result = await command.ExecuteScalarAsync();
+            var count = Convert.ToInt32(result);
+            
+            _logger.LogInformation("Document count retrieved: {Count}", count);
+            return count;
+        }
+        catch (Npgsql.PostgresException pgEx)
+        {
+            var errorDetails = $"PostgreSQL Error Code: {pgEx.SqlState}\n" +
+                             $"Message: {pgEx.Message}\n" +
+                             $"Detail: {pgEx.Detail}\n" +
+                             $"Hint: {pgEx.Hint}\n" +
+                             $"Position: {pgEx.Position}\n" +
+                             $"Where: {pgEx.Where}\n" +
+                             $"Schema: {pgEx.SchemaName}\n" +
+                             $"Table: {pgEx.TableName}\n" +
+                             $"Column: {pgEx.ColumnName}\n" +
+                             $"Constraint: {pgEx.ConstraintName}\n" +
+                             $"Stack Trace:\n{pgEx.StackTrace}";
+            
+            _logger.LogError(pgEx, "PostgreSQL error in GetDocumentCountAsync. Full details:\n{ErrorDetails}", errorDetails);
+            throw new Exception($"Database error in GetDocumentCountAsync: {errorDetails}", pgEx);
+        }
+        catch (Exception ex)
+        {
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+
+            _logger.LogError(ex, "Error in GetDocumentCountAsync. Full details:\n{ErrorDetails}", errorDetails);
+            throw new Exception($"Error in GetDocumentCountAsync: {errorDetails}", ex);
+        }
     }
 
     public async Task<DocumentRecord?> GetDocumentByIdAsync(long id)

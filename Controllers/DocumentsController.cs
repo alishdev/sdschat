@@ -27,22 +27,60 @@ public class DocumentsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<DocumentsResponse>> GetDocuments([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
-        var documents = await _documentService.GetDocumentsAsync(page, pageSize);
-        var totalCount = await _documentService.GetDocumentCountAsync();
-
-        return Ok(new DocumentsResponse
+        try
         {
-            Documents = documents.Select(d => new DocumentDto
+            _logger.LogInformation("Getting documents - Page: {Page}, PageSize: {PageSize}", page, pageSize);
+            
+            var documents = await _documentService.GetDocumentsAsync(page, pageSize);
+            _logger.LogDebug("Retrieved {Count} documents from service", documents.Count);
+            
+            var totalCount = await _documentService.GetDocumentCountAsync();
+            _logger.LogDebug("Total document count: {Count}", totalCount);
+
+            var response = new DocumentsResponse
             {
-                Id = d.Id,
-                FileName = d.FileName,
-                DateUploaded = d.DateUploaded,
-                FileSize = d.FileSize
-            }).ToList(),
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize
-        });
+                Documents = documents.Select(d => new DocumentDto
+                {
+                    Id = d.Id,
+                    FileName = d.FileName,
+                    DateUploaded = d.DateUploaded,
+                    FileSize = d.FileSize
+                }).ToList(),
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+
+            _logger.LogInformation("Successfully retrieved {Count} documents (page {Page} of {TotalPages})", 
+                response.Documents.Count, page, (int)Math.Ceiling(totalCount / (double)pageSize));
+            
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+
+            _logger.LogError(ex, "Error getting documents. Full details:\n{ErrorDetails}", errorDetails);
+            
+            return StatusCode(500, new DocumentsResponse
+            {
+                Documents = new List<DocumentDto>(),
+                TotalCount = 0,
+                Page = page,
+                PageSize = pageSize,
+                ErrorMessage = errorDetails
+            });
+        }
     }
 
     [HttpPost("upload")]
@@ -84,8 +122,24 @@ public class DocumentsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error uploading document");
-            return StatusCode(500, new UploadResponse { Success = false, Message = "An error occurred while uploading the file." });
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+
+            _logger.LogError(ex, "Error uploading document. Full details:\n{ErrorDetails}", errorDetails);
+            return StatusCode(500, new UploadResponse 
+            { 
+                Success = false, 
+                Message = $"An error occurred while uploading the file.\n\n{errorDetails}" 
+            });
         }
     }
 
@@ -121,8 +175,20 @@ public class DocumentsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error downloading document {Id}", id);
-            return StatusCode(500, "An error occurred while downloading the file.");
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+
+            _logger.LogError(ex, "Error downloading document {Id}. Full details:\n{ErrorDetails}", id, errorDetails);
+            return StatusCode(500, $"An error occurred while downloading the file.\n\n{errorDetails}");
         }
     }
 
@@ -141,8 +207,24 @@ public class DocumentsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting document");
-            return StatusCode(500, new DeleteResponse { Success = false, Message = "An error occurred while deleting the document." });
+            var errorDetails = $"Exception Type: {ex.GetType().FullName}\n" +
+                             $"Message: {ex.Message}\n" +
+                             $"Stack Trace:\n{ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception:\n" +
+                               $"Type: {ex.InnerException.GetType().FullName}\n" +
+                               $"Message: {ex.InnerException.Message}\n" +
+                               $"Stack Trace:\n{ex.InnerException.StackTrace}";
+            }
+
+            _logger.LogError(ex, "Error deleting document. Full details:\n{ErrorDetails}", errorDetails);
+            return StatusCode(500, new DeleteResponse 
+            { 
+                Success = false, 
+                Message = $"An error occurred while deleting the document.\n\n{errorDetails}" 
+            });
         }
     }
 }
@@ -154,6 +236,7 @@ public class DocumentsResponse
     public int TotalCount { get; set; }
     public int Page { get; set; }
     public int PageSize { get; set; }
+    public string? ErrorMessage { get; set; }
 }
 
 public class DocumentDto
