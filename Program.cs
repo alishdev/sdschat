@@ -1,4 +1,5 @@
 using SDSChat.Components;
+using SDSChat.Services;
 
 namespace SDSChat;
 
@@ -12,7 +13,45 @@ public class Program
         builder.Services.AddRazorComponents()
             .AddInteractiveServerComponents();
 
+        // Add services
+        builder.Services.AddScoped<IDocumentService, DocumentService>();
+        builder.Services.AddScoped<ITextExtractionService, TextExtractionService>();
+        builder.Services.AddScoped<IChatService, ChatService>();
+
+        // Add API controllers
+        builder.Services.AddControllers();
+
+        // Configure HttpClient for Blazor Server
+        builder.Services.AddHttpClient();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<HttpClient>(sp =>
+        {
+            var httpContextAccessor = sp.GetRequiredService<IHttpContextAccessor>();
+            var httpContext = httpContextAccessor.HttpContext;
+            
+            if (httpContext != null)
+            {
+                var request = httpContext.Request;
+                var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
+                return new HttpClient
+                {
+                    BaseAddress = new Uri(baseUrl)
+                };
+            }
+            
+            // Fallback - this shouldn't happen in normal Blazor Server scenarios
+            return new HttpClient();
+        });
+
         var app = builder.Build();
+
+        // Ensure storage directory exists
+        var storagePath = app.Configuration.GetValue<string>("DocumentSettings:StoragePath")
+            ?? Path.Combine(Directory.GetCurrentDirectory(), "Documents");
+        if (!Directory.Exists(storagePath))
+        {
+            Directory.CreateDirectory(storagePath);
+        }
 
         // Configure the HTTP request pipeline.
         if (!app.Environment.IsDevelopment())
@@ -29,6 +68,8 @@ public class Program
         app.MapStaticAssets();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
+
+        app.MapControllers();
 
         app.Run();
     }

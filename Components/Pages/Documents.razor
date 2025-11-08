@@ -1,0 +1,337 @@
+@page "/"
+@page "/documents"
+@rendermode InteractiveServer
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<PageTitle>Documents</PageTitle>
+
+<div style="display: flex; flex-direction: column; min-height: calc(100vh - 200px);">
+    <div>
+        <h1>Documents</h1>
+
+        <div class="mb-3">
+            <label class="btn btn-primary" for="fileInput" style="@(isUploading ? "pointer-events: none; opacity: 0.6;" : "")">
+                <span class="bi bi-plus-circle"></span> Add New Document
+            </label>
+            <InputFile id="fileInput" style="display: none;" OnChange="HandleFileSelected" multiple />
+        </div>
+
+        @if (!string.IsNullOrEmpty(uploadMessage))
+        {
+            <div class="alert @(uploadSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                @uploadMessage
+                <button type="button" class="btn-close" @onclick="ClearUploadMessage"></button>
+            </div>
+        }
+
+        @if (isUploading)
+        {
+            <div class="progress mb-3">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%">
+                    Uploading...
+                </div>
+            </div>
+        }
+
+        @if (documents == null)
+        {
+            <p><em>Loading...</em></p>
+        }
+        else if (documents.Count == 0)
+        {
+            <p><em>No documents found. Upload your first document using the button above.</em></p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" style="table-layout: fixed; width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="width: 50%;">Document Name</th>
+                            <th style="width: 25%;">Date Uploaded</th>
+                            <th style="width: 25%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var document in documents)
+                        {
+                            <tr>
+                                <td style="word-wrap: break-word; overflow-wrap: break-word;">@document.FileName</td>
+                                <td>@document.DateUploaded.ToLocalTime().ToString("g")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => DownloadDocument(document.Id.ToString())" disabled="@isDownloading">
+                                        <span class="bi bi-download"></span> Download
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(document.Id.ToString())" disabled="@isDeleting">
+                                        <span class="bi bi-trash"></span> Delete
+                                    </button>
+                                </td>
+                            </tr>
+                            @if (documentToDelete == document.Id.ToString())
+                            {
+                                <tr>
+                                    <td colspan="3" class="bg-warning">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>Are you sure you want to delete "@document.FileName"?</span>
+                                            <div>
+                                                <button class="btn btn-sm btn-danger me-2" @onclick="() => DeleteDocument(document.Id.ToString())">Yes, Delete</button>
+                                                <button class="btn btn-sm btn-secondary" @onclick="() => { documentToDelete = null; StateHasChanged(); }">Cancel</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    @if (documents != null && documents.Count > 0)
+    {
+        <nav aria-label="Document pagination" style="margin-top: auto; padding-top: 20px;">
+            <ul class="pagination justify-content-center">
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <a class="page-link" href="#" @onclick="() => NavigateToPage(1)" @onclick:preventDefault>First</a>
+                </li>
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <a class="page-link" href="#" @onclick="() => NavigateToPage(currentPage - 1)" @onclick:preventDefault>Previous</a>
+                </li>
+                <li class="page-item disabled">
+                    <span class="page-link">Page @currentPage of @totalPages (@totalCount total documents)</span>
+                </li>
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <a class="page-link" href="#" @onclick="() => NavigateToPage(currentPage + 1)" @onclick:preventDefault>Next</a>
+                </li>
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <a class="page-link" href="#" @onclick="() => NavigateToPage(totalPages)" @onclick:preventDefault>Last</a>
+                </li>
+            </ul>
+        </nav>
+    }
+</div>
+
+@code {
+    private List<DocumentDto>? documents;
+    private int currentPage = 1;
+    private const int pageSize = 10;
+    private int totalCount = 0;
+    private int totalPages = 0;
+    private bool isUploading = false;
+    private bool isDownloading = false;
+    private bool isDeleting = false;
+    private string uploadMessage = string.Empty;
+    private bool uploadSuccess = false;
+    private string? documentToDelete = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        try
+        {
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var response = await Http.GetFromJsonAsync<DocumentsResponse>($"{baseUri}/api/documents?page={currentPage}&pageSize={pageSize}");
+            if (response != null)
+            {
+                documents = response.Documents;
+                totalCount = response.TotalCount;
+                totalPages = totalCount > 0 ? (int)Math.Ceiling(totalCount / (double)pageSize) : 1;
+            }
+        }
+        catch (Exception ex)
+        {
+            uploadMessage = $"Error loading documents: {ex.Message}";
+            uploadSuccess = false;
+        }
+    }
+
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0)
+            return;
+
+        isUploading = true;
+        uploadMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            foreach (var file in e.GetMultipleFiles())
+            {
+                using var content = new MultipartFormDataContent();
+                using var fileStream = file.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024); // 100MB
+                using var streamContent = new StreamContent(fileStream);
+                streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+                content.Add(streamContent, "file", file.Name);
+
+                var baseUri = Navigation.BaseUri.TrimEnd('/');
+                var response = await Http.PostAsync($"{baseUri}/api/documents/upload", content);
+                var result = await response.Content.ReadFromJsonAsync<UploadResponse>();
+
+                if (result != null)
+                {
+                    if (result.Success)
+                    {
+                        uploadMessage = "File uploaded successfully.";
+                        uploadSuccess = true;
+                    }
+                    else
+                    {
+                        uploadMessage = result.Message;
+                        uploadSuccess = false;
+                    }
+                }
+                else
+                {
+                    uploadMessage = response.IsSuccessStatusCode 
+                        ? "File uploaded successfully." 
+                        : $"Error: {response.StatusCode}";
+                    uploadSuccess = response.IsSuccessStatusCode;
+                }
+            }
+
+            await LoadDocuments();
+        }
+        catch (Exception ex)
+        {
+            uploadMessage = $"Error uploading file: {ex.Message}";
+            uploadSuccess = false;
+        }
+        finally
+        {
+            isUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadDocument(string id)
+    {
+        isDownloading = true;
+        StateHasChanged();
+
+        try
+        {
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var response = await Http.GetAsync($"{baseUri}/api/documents/{id}/download");
+            if (response.IsSuccessStatusCode)
+            {
+                var document = documents?.FirstOrDefault(d => d.Id.ToString() == id);
+                var fileName = document?.FileName ?? "document";
+                var content = await response.Content.ReadAsByteArrayAsync();
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+
+                await JSRuntime.InvokeVoidAsync("downloadFile", fileName, contentType, content);
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Error downloading document.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error downloading document: {ex.Message}");
+        }
+        finally
+        {
+            isDownloading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ConfirmDelete(string id)
+    {
+        documentToDelete = id;
+        StateHasChanged();
+    }
+
+    private async Task DeleteDocument(string id)
+    {
+        isDeleting = true;
+        StateHasChanged();
+
+        try
+        {
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var response = await Http.DeleteAsync($"{baseUri}/api/documents/{id}");
+            var result = await response.Content.ReadFromJsonAsync<DeleteResponse>();
+
+            if (result != null && result.Success)
+            {
+                uploadMessage = "Document deleted successfully.";
+                uploadSuccess = true;
+                await LoadDocuments();
+            }
+            else
+            {
+                uploadMessage = result?.Message ?? "Error deleting document.";
+                uploadSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            uploadMessage = $"Error deleting document: {ex.Message}";
+            uploadSuccess = false;
+        }
+        finally
+        {
+            isDeleting = false;
+            documentToDelete = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NavigateToPage(int page)
+    {
+        if (page >= 1 && page <= totalPages && page != currentPage)
+        {
+            currentPage = page;
+            await LoadDocuments();
+        }
+    }
+
+    private void ClearUploadMessage()
+    {
+        uploadMessage = string.Empty;
+        StateHasChanged();
+    }
+
+    // DTOs
+    private class DocumentsResponse
+    {
+        public List<DocumentDto> Documents { get; set; } = new();
+        public int TotalCount { get; set; }
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+    }
+
+    private class DocumentDto
+    {
+        public int Id { get; set; }
+        public string FileName { get; set; } = string.Empty;
+        public DateTime DateUploaded { get; set; }
+        public long FileSize { get; set; }
+    }
+
+    private class UploadResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public int? DocumentId { get; set; }
+    }
+
+    private class DeleteResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+}
+

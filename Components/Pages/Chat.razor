@@ -1,0 +1,193 @@
+@page "/chat"
+@rendermode InteractiveServer
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Chat</PageTitle>
+
+<div style="display: flex; flex-direction: column; height: calc(100vh - 200px);">
+    <h1>Chat</h1>
+    
+    <div id="chatContainer" style="flex: 1; overflow-y: auto; padding: 20px; background-color: #f5f5f5; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 8px;">
+        @if (messages.Count == 0)
+        {
+            <div style="text-align: center; color: #999; padding: 40px;">
+                <p>Start a conversation by typing a question or search phrase below.</p>
+            </div>
+        }
+        else
+        {
+            @foreach (var message in messages)
+            {
+                <div style="margin-bottom: 15px; display: flex; @(message.IsUser ? "justify-content: flex-end;" : "justify-content: flex-start;")">
+                    <div style="max-width: 70%; padding: 12px 16px; border-radius: 18px; word-wrap: break-word; @(message.IsUser ? "background-color: #007bff; color: white;" : "background-color: #e9ecef; color: black;")">
+                        @if (!message.IsUser && message.DocumentNames != null && message.DocumentNames.Count > 0)
+                        {
+                            <div style="margin-bottom: 8px;">@message.Text</div>
+                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                <div style="font-weight: bold; margin-bottom: 5px;">Documents containing this phrase:</div>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    @foreach (var docName in message.DocumentNames)
+                                    {
+                                        <li>@docName</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                        else
+                        {
+                            @message.Text
+                        }
+                    </div>
+                </div>
+            }
+        }
+        
+        @if (isSearching)
+        {
+            <div style="display: flex; justify-content: flex-start; margin-bottom: 15px;">
+                <div style="padding: 12px 16px; border-radius: 18px; background-color: #e9ecef; color: black; display: flex; align-items: center;">
+                    <div class="spinner-border spinner-border-sm text-secondary" role="status" style="width: 1rem; height: 1rem;">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span style="margin-left: 8px;">Searching...</span>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div style="display: flex; gap: 10px; padding: 10px 0;">
+        <input type="text" 
+               @bind="inputMessage" 
+               @bind:event="oninput"
+               @onkeypress="HandleKeyPress"
+               placeholder="Type your question or search phrase..."
+               style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;"
+               disabled="@isSearching" />
+        <button class="btn btn-primary" 
+                @onclick="SendMessage" 
+                disabled="@(isSearching || string.IsNullOrWhiteSpace(inputMessage))"
+                style="padding: 12px 24px; border-radius: 8px;">
+            Send
+        </button>
+    </div>
+</div>
+
+@code {
+    private List<ChatMessage> messages = new();
+    private string inputMessage = string.Empty;
+    private bool isSearching = false;
+
+    private class ChatMessage
+    {
+        public string Text { get; set; } = string.Empty;
+        public bool IsUser { get; set; }
+        public List<string>? DocumentNames { get; set; }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !isSearching && !string.IsNullOrWhiteSpace(inputMessage))
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(inputMessage) || isSearching)
+            return;
+
+        var userMessage = inputMessage.Trim();
+        inputMessage = string.Empty;
+        
+        // Add user message immediately
+        messages.Add(new ChatMessage
+        {
+            Text = userMessage,
+            IsUser = true
+        });
+        
+        StateHasChanged();
+        await ScrollToBottom();
+
+        // Start searching
+        isSearching = true;
+        StateHasChanged();
+
+        try
+        {
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var request = new ChatRequest { Message = userMessage };
+            var response = await Http.PostAsJsonAsync($"{baseUri}/api/chat/search", request);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ChatResponse>();
+                if (result != null)
+                {
+                    messages.Add(new ChatMessage
+                    {
+                        Text = result.Message,
+                        IsUser = false,
+                        DocumentNames = result.DocumentNames
+                    });
+                }
+            }
+            else
+            {
+                messages.Add(new ChatMessage
+                {
+                    Text = "Sorry, an error occurred while searching. Please try again.",
+                    IsUser = false
+                });
+            }
+        }
+        catch
+        {
+            messages.Add(new ChatMessage
+            {
+                Text = "Sorry, an error occurred while searching. Please try again.",
+                IsUser = false
+            });
+        }
+        finally
+        {
+            isSearching = false;
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                var container = document.getElementById('chatContainer');
+                if (container) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            ");
+        }
+        catch
+        {
+            // Ignore JS errors
+        }
+    }
+
+    private class ChatRequest
+    {
+        public string Message { get; set; } = string.Empty;
+    }
+
+    private class ChatResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public List<string> DocumentNames { get; set; } = new();
+    }
+}
+
