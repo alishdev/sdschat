@@ -8,15 +8,18 @@ namespace SDSChat.Controllers;
 public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documentService;
+    private readonly ISupabaseService _supabaseService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<DocumentsController> _logger;
 
     public DocumentsController(
         IDocumentService documentService,
+        ISupabaseService supabaseService,
         IConfiguration configuration,
         ILogger<DocumentsController> logger)
     {
         _documentService = documentService;
+        _supabaseService = supabaseService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -65,27 +68,10 @@ public class DocumentsController : ControllerBase
 
         try
         {
-            var storagePath = _configuration.GetValue<string>("DocumentSettings:StoragePath") 
-                ?? Path.Combine(Directory.GetCurrentDirectory(), "Documents");
-            
-            // Ensure storage directory exists
-            if (!Directory.Exists(storagePath))
-            {
-                Directory.CreateDirectory(storagePath);
-            }
-
-            var storedFileName = $"{Guid.NewGuid()}_{file.FileName}";
-            var filePath = Path.Combine(storagePath, storedFileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
+            using var stream = file.OpenReadStream();
             var document = await _documentService.SaveDocumentAsync(
+                stream,
                 file.FileName,
-                storedFileName,
-                filePath,
                 file.Length,
                 file.ContentType ?? "application/octet-stream");
 
@@ -113,13 +99,15 @@ public class DocumentsController : ControllerBase
             return NotFound();
         }
 
-        if (!System.IO.File.Exists(document.FilePath))
+        // Download from Supabase storage
+        var fileBytes = await _supabaseService.DownloadFileFromStorageAsync(document.StoredFileName);
+        
+        if (fileBytes == null)
         {
-            _logger.LogWarning("File not found at path: {FilePath}", document.FilePath);
-            return NotFound("File not found on server.");
+            _logger.LogWarning("File not found in storage: {FileName}", document.StoredFileName);
+            return NotFound("File not found in storage.");
         }
 
-        var fileBytes = await System.IO.File.ReadAllBytesAsync(document.FilePath);
         return File(fileBytes, document.ContentType, document.FileName);
     }
 

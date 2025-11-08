@@ -14,6 +14,8 @@ public class Program
             .AddInteractiveServerComponents();
 
         // Add services
+        builder.Services.AddScoped<ISupabaseService, SupabaseService>();
+        builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<ITextExtractionService, TextExtractionService>();
         builder.Services.AddScoped<IChatService, ChatService>();
