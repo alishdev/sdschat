@@ -9,12 +9,27 @@
 <p>
     Default connection : @defaultConnection
 </p>
+<p>
+    API Key = @apikey
+</p>
+<p>
+    Sup URL = @supural
+</p>
+<p>
+    Sup Key = @supkey
+</p>
 
 @code
 {
     private string defaultConnection = "";
+    private string apikey = "";
+    private string supural = "";
+    private string supkey = "";
     protected override void OnInitialized()
     {
-        defaultConnection = config.GetConnectionString("Default") ?? "unknown";
+        defaultConnection = config.GetConnectionString("DefaultConnection") ?? "unknown";
+        apikey = config.GetValue<string>("OpenAIApiKey") ?? "unknown";
+        supural = config.GetValue<string>("SupabaseUrl") ?? "unknown";
+        supkey = config.GetValue<string>("SupabaseServiceRoleKey") ?? "unknown";
     }
 }
