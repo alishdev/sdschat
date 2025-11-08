@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Npgsql;
 using Supabase;
 using Supabase.Storage;
@@ -29,8 +31,11 @@ public class SupabaseService : ISupabaseService
     {
         _configuration = configuration;
         _logger = logger;
-        _connectionString = configuration.GetConnectionString("DefaultConnection") 
+        var rawConnectionString = configuration.GetConnectionString("DefaultConnection") 
             ?? throw new InvalidOperationException("DefaultConnection connection string not found");
+        
+        // Force IPv4 by resolving hostname to IPv4 address (fixes Azure IPv6 connectivity issues)
+        _connectionString = EnsureIPv4ConnectionString(rawConnectionString);
         
         // Use ServiceRoleKey for direct server-side Storage operations (bypasses RLS)
         var supabaseUrl = configuration["SupabaseUrl"] 
@@ -48,6 +53,88 @@ public class SupabaseService : ISupabaseService
         
         _supabaseClient = new Supabase.Client(supabaseUrl, serviceRoleKey);
         _logger.LogInformation("Supabase client initialized with URL: {Url}", supabaseUrl);
+    }
+
+    private string EnsureIPv4ConnectionString(string connectionString)
+    {
+        try
+        {
+            var builder = new NpgsqlConnectionStringBuilder(connectionString);
+            var host = builder.Host;
+            
+            if (string.IsNullOrEmpty(host))
+            {
+                _logger.LogWarning("Connection string has no host specified");
+                return connectionString;
+            }
+            
+            // If host is already an IP address, check if it's IPv6 and resolve to IPv4
+            if (IPAddress.TryParse(host, out var ipAddress))
+            {
+                if (ipAddress.AddressFamily == AddressFamily.InterNetworkV6)
+                {
+                    _logger.LogWarning("Connection string contains IPv6 address {IPv6}, attempting to resolve to IPv4", host);
+                    // Try to resolve hostname to IPv4 - but we have an IP, so we need to resolve the original hostname
+                    // For now, just return the original connection string and let DNS resolution handle it
+                    return connectionString;
+                }
+                else
+                {
+                    // Already IPv4, use as-is
+                    return connectionString;
+                }
+            }
+            else
+            {
+                // Host is a hostname, resolve to IPv4
+                var ipv4Host = ResolveHostnameToIPv4(host);
+                if (ipv4Host != host)
+                {
+                    builder.Host = ipv4Host;
+                    var newConnectionString = builder.ConnectionString;
+                    _logger.LogInformation("Resolved hostname {Hostname} to IPv4: {IPv4}", host, ipv4Host);
+                    return newConnectionString;
+                }
+            }
+            
+            return connectionString;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve hostname to IPv4, using original connection string");
+            return connectionString;
+        }
+    }
+
+    private string ResolveHostnameToIPv4(string hostname)
+    {
+        try
+        {
+            _logger.LogDebug("Resolving hostname {Hostname} to IPv4 address", hostname);
+            
+            // Get all IP addresses for the hostname
+            var hostEntry = Dns.GetHostEntry(hostname);
+            
+            // Prefer IPv4 addresses
+            var ipv4Address = hostEntry.AddressList
+                .FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork);
+            
+            if (ipv4Address != null)
+            {
+                _logger.LogInformation("Resolved {Hostname} to IPv4 address: {IPv4}", hostname, ipv4Address);
+                return ipv4Address.ToString();
+            }
+            
+            // If no IPv4 found, log warning and return original hostname
+            _logger.LogWarning("No IPv4 address found for {Hostname}, using original hostname. Available addresses: {Addresses}", 
+                hostname, string.Join(", ", hostEntry.AddressList.Select(ip => ip.ToString())));
+            return hostname;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving hostname {Hostname} to IPv4", hostname);
+            return hostname;
+        }
     }
 
     public async Task<long> InsertDocumentAsync(string filename)
