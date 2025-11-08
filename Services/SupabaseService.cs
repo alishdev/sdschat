@@ -240,13 +240,28 @@ public class SupabaseService : ISupabaseService
     {
         try
         {
+            _logger.LogDebug("Downloading file {FileName} from Supabase Storage bucket 'files'", fileName);
+            
             var bucket = _supabaseClient.Storage.From("files");
             var fileData = await bucket.Download(fileName, null);
-            return fileData ?? null;
+            
+            if (fileData == null)
+            {
+                _logger.LogWarning("File {FileName} not found in Supabase Storage bucket 'files'", fileName);
+                return null;
+            }
+            
+            _logger.LogInformation("Successfully downloaded file {FileName} from Supabase Storage ({Size} bytes)", fileName, fileData.Length);
+            return fileData;
+        }
+        catch (Supabase.Storage.Exceptions.SupabaseStorageException ex)
+        {
+            _logger.LogError(ex, "Supabase Storage error downloading file {FileName}. Error: {Message}", fileName, ex.Message);
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error downloading file from storage: {FileName}", fileName);
+            _logger.LogError(ex, "Unexpected error downloading file {FileName} from Supabase Storage", fileName);
             return null;
         }
     }

@@ -92,23 +92,38 @@ public class DocumentsController : ControllerBase
     [HttpGet("{id}/download")]
     public async Task<IActionResult> DownloadDocument(string id)
     {
-        var document = await _documentService.GetDocumentByIdAsync(id);
-
-        if (document == null)
+        try
         {
-            return NotFound();
-        }
+            var document = await _documentService.GetDocumentByIdAsync(id);
 
-        // Download from Supabase storage
-        var fileBytes = await _supabaseService.DownloadFileFromStorageAsync(document.StoredFileName);
-        
-        if (fileBytes == null)
+            if (document == null)
+            {
+                _logger.LogWarning("Document not found for download: {Id}", id);
+                return NotFound("Document not found.");
+            }
+
+            // Download from Supabase Storage "files" bucket
+            _logger.LogDebug("Downloading document {Id} with stored filename: {StoredFileName}", id, document.StoredFileName);
+            var fileBytes = await _supabaseService.DownloadFileFromStorageAsync(document.StoredFileName);
+            
+            if (fileBytes == null)
+            {
+                _logger.LogWarning("File not found in Supabase Storage: {StoredFileName} for document {Id}", document.StoredFileName, id);
+                return NotFound("File not found in storage.");
+            }
+
+            var contentType = !string.IsNullOrEmpty(document.ContentType) 
+                ? document.ContentType 
+                : "application/octet-stream";
+
+            _logger.LogInformation("Successfully downloaded document {Id}: {FileName} ({Size} bytes)", id, document.FileName, fileBytes.Length);
+            return File(fileBytes, contentType, document.FileName);
+        }
+        catch (Exception ex)
         {
-            _logger.LogWarning("File not found in storage: {FileName}", document.StoredFileName);
-            return NotFound("File not found in storage.");
+            _logger.LogError(ex, "Error downloading document {Id}", id);
+            return StatusCode(500, "An error occurred while downloading the file.");
         }
-
-        return File(fileBytes, document.ContentType, document.FileName);
     }
 
     [HttpDelete("{id}")]
