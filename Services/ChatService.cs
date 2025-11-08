@@ -107,13 +107,32 @@ public class ChatService : IChatService
                 }
             }
 
-            // Step 3: Build context from retrieved chunks
+            // Step 3: Get unique document IDs and fetch document names
+            var uniqueDocumentIds = similarChunks.Select(c => c.DocumentId).Distinct().ToList();
+            var documentNames = new List<string>();
+            
+            foreach (var docId in uniqueDocumentIds)
+            {
+                var document = await _supabaseService.GetDocumentByIdAsync(docId);
+                if (document != null && !string.IsNullOrEmpty(document.Filename))
+                {
+                    // Extract original filename from stored filename (remove GUID prefix)
+                    var storedFileName = document.Filename;
+                    var originalFileName = storedFileName.Contains('_') 
+                        ? storedFileName.Substring(storedFileName.IndexOf('_') + 1) 
+                        : storedFileName;
+                    documentNames.Add(originalFileName);
+                }
+            }
+
+            // Step 4: Build context from retrieved chunks
             var context = string.Join("\n\n", similarChunks.Select((chunk, index) => 
                 $"[Document {index + 1}]\n{chunk.Content}"));
 
-            _logger.LogDebug("Found {Count} relevant chunks, generating response with OpenAI", similarChunks.Count);
+            _logger.LogDebug("Found {Count} relevant chunks from {DocCount} documents, generating response with OpenAI", 
+                similarChunks.Count, documentNames.Count);
 
-            // Step 4: Use OpenAI to generate response based on the context
+            // Step 5: Use OpenAI to generate response based on the context
             var chatCompletionService = _kernel.GetRequiredService<IChatCompletionService>();
             
             var chatHistory = new ChatHistory();
@@ -129,7 +148,8 @@ Do not use any knowledge outside of the provided context. Be concise and accurat
             return new ChatResponse
             {
                 Success = true,
-                Message = answer
+                Message = answer,
+                DocumentNames = documentNames.Distinct().ToList()
             };
         }
         catch (Exception ex)
@@ -148,5 +168,6 @@ public class ChatResponse
 {
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
+    public List<string> DocumentNames { get; set; } = new();
 }
 
