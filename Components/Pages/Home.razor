@@ -6,7 +6,6 @@
 
 <h1>Hello, world!</h1>
 
-
 <p>
     Default connection : @defaultConnection
 </p>
@@ -29,7 +28,7 @@
     protected override void OnInitialized()
     {
         defaultConnection = config.GetConnectionString("DefaultConnection") ?? "unknown";
-        apikey = config["OpenAI:ApiKey"] ?? "unknown";
+        apikey = config.GetValue<string>("OpenAIApiKey") ?? "unknown";
         supural = config.GetValue<string>("SupabaseUrl") ?? "unknown";
         supkey = config.GetValue<string>("SupabaseServiceRoleKey") ?? "unknown";
     }
