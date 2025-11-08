@@ -15,6 +15,7 @@ public interface ISupabaseService
     Task<bool> FileNameExistsAsync(string fileName);
     Task<bool> DeleteDocumentAsync(long id);
     Task<byte[]?> DownloadFileFromStorageAsync(string fileName);
+    Task<List<DocumentChunk>> SearchSimilarChunksAsync(float[] queryEmbedding, int limit = 5, double similarityThreshold = 0.7);
 }
 
 public class SupabaseService : ISupabaseService
@@ -265,6 +266,65 @@ public class SupabaseService : ISupabaseService
             return null;
         }
     }
+
+    public async Task<List<DocumentChunk>> SearchSimilarChunksAsync(float[] queryEmbedding, int limit = 5, double similarityThreshold = 0.5)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        // Ensure pgvector extension is enabled
+        await EnsureVectorExtensionAsync(connection);
+
+        // Convert float[] to PostgreSQL vector format
+        var vectorString = "[" + string.Join(",", queryEmbedding) + "]";
+
+        _logger.LogDebug("Searching for chunks with query vector dimension: {Dimension}, threshold: {Threshold}", 
+            queryEmbedding.Length, similarityThreshold);
+
+        // Use cosine similarity (1 - cosine distance) for vector search
+        // pgvector uses cosine distance, so we subtract from 1 to get similarity
+        // If threshold is 0, don't filter by threshold
+        string sql;
+        if (similarityThreshold > 0)
+        {
+            sql = @"SELECT id, document_id, content, 1 - (embedding <=> @queryVector::vector) as similarity
+                    FROM data.document_chunks
+                    WHERE 1 - (embedding <=> @queryVector::vector) >= @threshold
+                    ORDER BY embedding <=> @queryVector::vector
+                    LIMIT @limit";
+        }
+        else
+        {
+            sql = @"SELECT id, document_id, content, 1 - (embedding <=> @queryVector::vector) as similarity
+                    FROM data.document_chunks
+                    ORDER BY embedding <=> @queryVector::vector
+                    LIMIT @limit";
+        }
+
+        var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("queryVector", vectorString);
+        command.Parameters.AddWithValue("limit", limit);
+        if (similarityThreshold > 0)
+        {
+            command.Parameters.AddWithValue("threshold", similarityThreshold);
+        }
+
+        var chunks = new List<DocumentChunk>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            chunks.Add(new DocumentChunk
+            {
+                Id = reader.GetGuid(0),
+                DocumentId = reader.GetInt64(1),
+                Content = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                Similarity = (float)reader.GetDouble(3)
+            });
+        }
+
+        _logger.LogDebug("Found {Count} chunks with similarity >= {Threshold}", chunks.Count, similarityThreshold);
+        return chunks;
+    }
 }
 
 public class DocumentRecord
@@ -272,5 +332,13 @@ public class DocumentRecord
     public long Id { get; set; }
     public string? Filename { get; set; }
     public DateTime CreatedAt { get; set; }
+}
+
+public class DocumentChunk
+{
+    public Guid Id { get; set; }
+    public long DocumentId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public float Similarity { get; set; }
 }
 

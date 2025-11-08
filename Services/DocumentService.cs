@@ -162,14 +162,33 @@ public class DocumentService : IDocumentService
 
                 if (!string.IsNullOrWhiteSpace(extractedText))
                 {
+                    _logger.LogInformation("Extracted {Length} characters from document {FileName}", extractedText.Length, fileName);
+                    
                     // Create embeddings and chunks
                     var chunks = await _embeddingService.CreateEmbeddingsAsync(extractedText);
+                    
+                    _logger.LogInformation("Created {Count} chunks with embeddings for document {FileName}", chunks.Count, fileName);
 
                     // Insert chunks into database
+                    int insertedCount = 0;
                     foreach (var chunk in chunks)
                     {
-                        await _supabaseService.InsertDocumentChunkAsync(documentId, chunk.Content, chunk.Embedding);
+                        try
+                        {
+                            await _supabaseService.InsertDocumentChunkAsync(documentId, chunk.Content, chunk.Embedding);
+                            insertedCount++;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error inserting chunk for document {FileName}", fileName);
+                        }
                     }
+                    
+                    _logger.LogInformation("Successfully inserted {Count} chunks into database for document {FileName}", insertedCount, fileName);
+                }
+                else
+                {
+                    _logger.LogWarning("No text extracted from document {FileName}", fileName);
                 }
             }
             finally
