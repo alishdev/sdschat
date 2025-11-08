@@ -19,6 +19,7 @@ public class Program
         builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<ITextExtractionService, TextExtractionService>();
         builder.Services.AddScoped<IChatService, ChatService>();
+        builder.Services.AddScoped<IPasswordAuthService, PasswordAuthService>();
 
         // Add API controllers
         builder.Services.AddControllers();

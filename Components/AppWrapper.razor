@@ -1,0 +1,35 @@
+@inject IJSRuntime JSRuntime
+
+@if (IsAuthenticated)
+{
+    <Routes @rendermode="InteractiveServer"/>
+}
+else
+{
+    <PasswordDialog OnAuthenticated="HandleAuthentication"/>
+}
+
+@code {
+    private bool IsAuthenticated { get; set; } = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Check if user is already authenticated in this session
+            var authValue = await JSRuntime.InvokeAsync<string>("sessionStorage.getItem", "appAuthenticated");
+            if (authValue == "true")
+            {
+                IsAuthenticated = true;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void HandleAuthentication(bool authenticated)
+    {
+        IsAuthenticated = authenticated;
+        StateHasChanged();
+    }
+}
+
