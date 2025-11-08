@@ -33,10 +33,10 @@ public class SupabaseService : ISupabaseService
             ?? throw new InvalidOperationException("DefaultConnection connection string not found");
         
         // Use ServiceRoleKey for direct server-side Storage operations (bypasses RLS)
-        var supabaseUrl = configuration["Supabase:Url"] 
-            ?? throw new InvalidOperationException("Supabase:Url not configured");
-        var serviceRoleKey = configuration["Supabase:ServiceRoleKey"] 
-            ?? throw new InvalidOperationException("Supabase:ServiceRoleKey not configured");
+        var supabaseUrl = configuration["SupabaseUrl"] 
+            ?? throw new InvalidOperationException("SupabaseUrl not configured");
+        var serviceRoleKey = configuration["SupabaseServiceRoleKey"] 
+            ?? throw new InvalidOperationException("SupabaseServiceRoleKey not configured");
         
         // Validate that ServiceRoleKey is not a placeholder
         if (serviceRoleKey.Contains("YOUR_") || serviceRoleKey.Length < 20)

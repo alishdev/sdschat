@@ -20,8 +20,8 @@ public class EmbeddingService : IEmbeddingService
         _configuration = configuration;
         _logger = logger;
 
-        var apiKey = configuration["OpenAI:ApiKey"] 
-            ?? throw new InvalidOperationException("OpenAI:ApiKey not configured");
+        var apiKey = configuration["OpenAIApiKey"] 
+            ?? throw new InvalidOperationException("OpenAIApiKey not configured");
 
         var kernelBuilder = Kernel.CreateBuilder();
 #pragma warning disable SKEXP0011
