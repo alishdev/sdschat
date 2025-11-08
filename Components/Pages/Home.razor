@@ -1,4 +1,4 @@
-﻿@page "/home"
+﻿@page "/cfg"
 @inject IConfiguration config
 
 
@@ -28,8 +28,8 @@
     protected override void OnInitialized()
     {
         defaultConnection = config.GetConnectionString("DefaultConnection") ?? "unknown";
-        apikey = config.GetValue<string>("OpenAIApiKey") ?? "unknown";
-        supural = config.GetValue<string>("SupabaseUrl") ?? "unknown";
-        supkey = config.GetValue<string>("SupabaseServiceRoleKey") ?? "unknown";
+        apikey = config.GetValue<string>("OpenAI:ApiKey") ?? "unknown";
+        supural = config.GetValue<string>("Supabase:Url") ?? "unknown";
+        supkey = config.GetValue<string>("Supabase:ServiceRoleKey") ?? "unknown";
     }
 }
