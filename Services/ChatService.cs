@@ -28,7 +28,7 @@ public class ChatService : IChatService
         _configuration = configuration;
         _logger = logger;
 
-        var apiKey = configuration["OpenAIApiKey"] 
+        var apiKey = configuration["OpenAI:ApiKey"] 
             ?? throw new InvalidOperationException("OpenAI:ApiKey not configured");
 
         var kernelBuilder = Kernel.CreateBuilder();
